@@ -1,0 +1,856 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, addDoc } from 'firebase/firestore';
+import { Search, Plus, House, User, CheckCircle, Clock, XCircle, ChevronDown, ListFilter, Trash2, Edit } from 'lucide-react';
+
+// --- Variabel Global Firestore (Wajib digunakan sesuai instruksi) ---
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+// Mengonversi string harga Rupiah ke format angka
+const parseRupiah = (value) => {
+    if (typeof value === 'string') {
+        return parseInt(value.replace(/[^0-9]/g, ''), 10) || 0;
+    }
+    return parseInt(value, 10) || 0;
+};
+
+// Format angka menjadi string Rupiah
+const formatRupiah = (number) => {
+    // Memastikan input adalah angka
+    const num = typeof number === 'number' ? number : parseRupiah(number);
+    return new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0,
+    }).format(num);
+};
+
+// Data Awal Properti (Seed Data)
+const initialPropertyData = {
+    komersil: [
+        { PERUMAHAN: 'TAMAN EMINA', 'LB/LT': '40/100', LOKASI: 'BAUR', DEVELOPER: 'CITRA JAYA', HARGA: 475000000, 'DP MINML/BOOKING': 2500000, 'BIAYA AKAD': 30000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2900000 },
+        { PERUMAHAN: 'TAMAN INARA', 'LB/LT': '45/100', LOKASI: 'KAMPUNG PULE', DEVELOPER: 'CITRA JAYA', HARGA: 475000000, 'DP MINML/BOOKING': 2500000, 'BIAYA AKAD': 30000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2900000 },
+        { PERUMAHAN: 'GRAHA SULTAN', 'LB/LT': '40/100', LOKASI: 'JEMPONG', DEVELOPER: 'CITRA JAYA', HARGA: 475000000, 'DP MINML/BOOKING': 2500000, 'BIAYA AKAD': 30000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2900000 },
+        { PERUMAHAN: 'BALE SOLAH', 'LB/LT': '45/100', LOKASI: 'PERAMPUAN', DEVELOPER: 'PALING SOLAH', HARGA: 499000000, 'DP MINML/BOOKING': 6000000, 'BIAYA AKAD': 25000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 3200000 },
+        { PERUMAHAN: 'INDRALOKA', 'LB/LT': '55/105', LOKASI: 'PERAMPUAN', DEVELOPER: 'BUMI SRI KARMA', HARGA: 550000000, 'DP MINML/BOOKING': 5000000, 'BIAYA AKAD': 5000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 3300000 },
+        { PERUMAHAN: 'PARAMADIVA', 'LB/LT': '75/273', LOKASI: 'JEMPONG', DEVELOPER: 'BUMI SRI KARMA', HARGA: 750000000, 'DP MINML/BOOKING': 2000000, 'BIAYA AKAD': 20000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 4000000 },
+        { PERUMAHAN: 'GREEN EMERALD', 'LB/LT': '80/120', LOKASI: 'DEPAN TEMBOLAK', DEVELOPER: 'HAZCO', HARGA: 1165000000, 'DP MINML/BOOKING': 50000000, 'BIAYA AKAD': 50000000, 'AKAD OLEH KONS': 50000000, 'ANGSURAN 20 TH': 5600000 },
+        { PERUMAHAN: 'AREZTHA', 'LB/LT': '40/100', LOKASI: 'DEPAN TEMBOLAK', DEVELOPER: 'GALERY PROPERTY', HARGA: 450000000, 'DP MINML/BOOKING': 2000000, 'BIAYA AKAD': 5000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2900000 },
+        { PERUMAHAN: 'PARADISE LAND (Komersil)', 'LB/LT': '50/100', LOKASI: 'KEKERI', DEVELOPER: 'GALERY PROPERTY', HARGA: 400000000, 'DP MINML/BOOKING': 5000000, 'BIAYA AKAD': 35000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2200000 },
+        { PERUMAHAN: 'SAVANA GARDEN', 'LB/LT': '45/100', LOKASI: 'PERAMPVAN', DEVELOPER: 'VARINDO', HARGA: 585000000, 'DP MINML/BOOKING': 12500000, 'BIAYA AKAD': 12500000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 3200000 },
+        { PERUMAHAN: 'ALANA GRANDE (K50)', 'LB/LT': '50/105', LOKASI: 'DEPAN TEMBOLAK', DEVELOPER: 'ZAFIRA ALANA', HARGA: 700000000, 'DP MINML/BOOKING': 70000000, 'BIAYA AKAD': 35000000, 'AKAD OLEH KONS': 35000000, 'ANGSURAN 20 TH': 3700000 },
+        { PERUMAHAN: 'ALANA GRANDE (K120)', 'LB/LT': '120/150', LOKASI: 'DEPAN TEMBOLAK', DEVELOPER: 'ZAFIRA ALANA', HARGA: 1500000000, 'DP MINML/BOOKING': 150000000, 'BIAYA AKAD': 50000000, 'AKAD OLEH KONS': 50000000, 'ANGSURAN 20 TH': 7300000 },
+        { PERUMAHAN: 'ANAYA (Komersil)', 'LB/LT': '50/105', LOKASI: 'MAVILA', DEVELOPER: 'BUMI SRI KARMA', HARGA: 550000000, 'DP MINML/BOOKING': 5000000, 'BIAYA AKAD': 5000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2900000 },
+        { PERUMAHAN: 'UNRAM (K40)', 'LB/LT': '40/105', LOKASI: 'LINGKAR', DEVELOPER: 'VARINDO', HARGA: 630000000, 'DP MINML/BOOKING': 15000000, 'BIAYA AKAD': 15000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 3400000 },
+        { PERUMAHAN: 'UNRAM (K70)', 'LB/LT': '70/136', LOKASI: 'LINGKAR', DEVELOPER: 'VARINDO', HARGA: 1200000000, 'DP MINML/BOOKING': 20000000, 'BIAYA AKAD': 20000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 6300000 },
+        { PERUMAHAN: 'PESONA ALAM (K38/80)', 'LB/LT': '38/80', LOKASI: 'SAYANG-SAYANG', DEVELOPER: 'VARINDO', HARGA: 420000000, 'DP MINML/BOOKING': 2000000, 'BIAYA AKAD': 2000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 1700000 },
+        { PERUMAHAN: 'PESONA ALAM (K40/100)', 'LB/LT': '40/100', LOKASI: 'SAYANG-SAYANG', DEVELOPER: 'VARINDO', HARGA: 475000000, 'DP MINML/BOOKING': 2000000, 'BIAYA AKAD': 2000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2700000 },
+        { PERUMAHAN: 'PESONA ALAM (K60/80)', 'LB/LT': '60/80', LOKASI: 'SAYANG-SAYANG', DEVELOPER: 'VARINDO', HARGA: 450000000, 'DP MINML/BOOKING': 2000000, 'BIAYA AKAD': 2000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2400000 },
+        { PERUMAHAN: 'GRAND LINGKAR', 'LB/LT': '45/100', LOKASI: 'LINGKAR', DEVELOPER: 'VARINDO', HARGA: 630000000, 'DP MINML/BOOKING': 60000000, 'BIAYA AKAD': 50000000, 'AKAD OLEH KONS': 50000000, 'ANGSURAN 20 TH': 2900000 },
+        { PERUMAHAN: 'GRAND NATURA (K76)', 'LB/LT': '76/105', LOKASI: 'GEGUTU', DEVELOPER: 'VARINDO', HARGA: 1600000000, 'DP MINML/BOOKING': 50000000, 'BIAYA AKAD': 50000000, 'AKAD OLEH KONS': 50000000, 'ANGSURAN 20 TH': 8200000 },
+        { PERUMAHAN: 'GRAND NATURA (K125)', 'LB/LT': '125/105', LOKASI: 'GEGUTU', DEVELOPER: 'VARINDO', HARGA: 1900000000, 'DP MINML/BOOKING': 75000000, 'BIAYA AKAD': 75000000, 'AKAD OLEH KONS': 75000000, 'ANGSURAN 20 TH': 9700000 },
+        { PERUMAHAN: 'GRAND NATURA (K240)', 'LB/LT': '240/264', LOKASI: 'GEGUTU', DEVELOPER: 'VARINDO', HARGA: 4300000000, 'DP MINML/BOOKING': 100000000, 'BIAYA AKAD': 100000000, 'AKAD OLEH KONS': 100000000, 'ANGSURAN 20 TH': 22000000 },
+        { PERUMAHAN: 'GARDENIA RAYA (K62)', 'LB/LT': '62/84', LOKASI: 'SELAGALAS', DEVELOPER: 'VARINDO', HARGA: 424000000, 'DP MINML/BOOKING': 2000000, 'BIAYA AKAD': 2000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2400000 },
+        { PERUMAHAN: 'GARDENIA RAYA (K38)', 'LB/LT': '38/84', LOKASI: 'SELAGALAS', DEVELOPER: 'VARINDO', HARGA: 385000000, 'DP MINML/BOOKING': 2000000, 'BIAYA AKAD': 2000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2200000 },
+        { PERUMAHAN: 'TAMAN MANDALI (K38)', 'LB/LT': '38/84', LOKASI: 'GERUNG', DEVELOPER: 'VARINDO', HARGA: 385000000, 'DP MINML/BOOKING': 2000000, 'BIAYA AKAD': 2000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2200000 },
+        { PERUMAHAN: 'TAMAN MANDALI (K62)', 'LB/LT': '62/84', LOKASI: 'GERUNG', DEVELOPER: 'VARINDO', HARGA: 424000000, 'DP MINML/BOOKING': 2000000, 'BIAYA AKAD': 2000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2400000 },
+        { PERUMAHAN: 'WAMERU', 'LB/LT': '45/100', LOKASI: 'TELAGASARU', DEVELOPER: 'SATRIA', HARGA: 500000000, 'DP MINML/BOOKING': 5000000, 'BIAYA AKAD': 5000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 3200000 },
+        { PERUMAHAN: 'BUMI INDAH REGENCY', 'LB/LT': '45/100', LOKASI: 'MENINTING', DEVELOPER: 'KARSA', HARGA: 350000000, 'DP MINML/BOOKING': 5000000, 'BIAYA AKAD': 5000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2500000 },
+        { PERUMAHAN: 'POIN PARK', 'LB/LT': '36/90', LOKASI: 'JEMPONG', DEVELOPER: 'SALVA', HARGA: 340000000, 'DP MINML/BOOKING': 1000000, 'BIAYA AKAD': 20000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2400000 },
+        { PERUMAHAN: 'BELL PARK', 'LB/LT': '36/90', LOKASI: 'KEKERI', DEVELOPER: 'SALVA', HARGA: 340000000, 'DP MINML/BOOKING': 1000000, 'BIAYA AKAD': 20000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2400000 },
+        { PERUMAHAN: 'VILA HARMONI (K45/120)', 'LB/LT': '45/120', LOKASI: 'JALAN BY PASS', DEVELOPER: 'HARMONI', HARGA: 445000000, 'DP MINML/BOOKING': 5000000, 'BIAYA AKAD': 5000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 3000000 },
+        { PERUMAHAN: 'VILA HARMONI (K36/105)', 'LB/LT': '36/105', LOKASI: 'JALAN BY PASS', DEVELOPER: 'HARMONI', HARGA: 345000000, 'DP MINML/BOOKING': 5000000, 'BIAYA AKAD': 5000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2500000 },
+        { PERUMAHAN: 'SYAILENDRA (K40/80)', 'LB/LT': '40/80', LOKASI: 'KURANJI', DEVELOPER: 'SYAILENDRA', HARGA: 275000000, 'DP MINML/BOOKING': 1000000, 'BIAYA AKAD': 30000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 1900000 },
+        { PERUMAHAN: 'HIKARI GARDEN SYAKURA', 'LB/LT': '40/100', LOKASI: 'KEDIRI', DEVELOPER: 'I ONE HOME', HARGA: 430000000, 'DP MINML/BOOKING': 2500000, 'BIAYA AKAD': 30000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2700000 },
+        { PERUMAHAN: 'HIKARI GARDEN AISAI', 'LB/LT': '45/100', LOKASI: 'KEDIRI', DEVELOPER: 'I ONE HOME', HARGA: 450000000, 'DP MINML/BOOKING': 2500000, 'BIAYA AKAD': 30000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 2900000 },
+        { PERUMAHAN: 'HIKARI GARDEN ORCHID', 'LB/LT': '86/130', LOKASI: 'KEDIRI', DEVELOPER: 'I ONE HOME', HARGA: 860000000, 'DP MINML/BOOKING': 5000000, 'BIAYA AKAD': 30000000, 'AKAD OLEH KONS': 0, 'ANGSURAN 20 TH': 5600000 },
+    ],
+    subsidi: [
+        { PERUMAHAN: 'PARADISE LAND (Subsidi)', 'LB/LT': '27/72', LOKASI: 'KEKERI', DEVELOPER: 'GALERY PROPERTY', HARGA: 185000000, BOOKING: 500000, 'BIAYA ADM': 7500000, 'ANGSURAN 20 TH': 1200000 },
+        { PERUMAHAN: 'GARDENIA RAYA (Subsidi)', 'LB/LT': '30/84', LOKASI: 'SELAGALAS', DEVELOPER: 'VARINDO', HARGA: 185000000, BOOKING: 1000000, 'BIAYA ADM': 8000000, 'ANGSURAN 20 TH': 1200000 },
+        { PERUMAHAN: 'TAMAN MANDALI (Subsidi)', 'LB/LT': '30/84', LOKASI: 'GERUNG', DEVELOPER: 'VARINDO', HARGA: 185000000, BOOKING: 1000000, 'BIAYA ADM': 8000000, 'ANGSURAN 20 TH': 1200000 },
+        { PERUMAHAN: 'SYAILENDRA (Subsidi)', 'LB/LT': '30/80', LOKASI: 'KURANJI', DEVELOPER: 'SYAILENDRA', HARGA: 185000000, BOOKING: 1000000, 'BIAYA ADM': 9500000, 'ANGSURAN 20 TH': 1200000 },
+        { PERUMAHAN: 'ANAYA (Subsidi)', 'LB/LT': '27/72', LOKASI: 'MAVILA', DEVELOPER: 'BUMI SRI KARMA', HARGA: 185000000, BOOKING: 1000000, 'BIAYA ADM': 18000000, 'ANGSURAN 20 TH': 1200000 },
+        { PERUMAHAN: 'GREEN SAVANA', 'LB/LT': '27/70', LOKASI: 'PEKANDELAN', DEVELOPER: 'CITRA JAYA GRAHA', HARGA: 185000000, BOOKING: 1000000, 'BIAYA ADM': 18000000, 'ANGSURAN 20 TH': 1200000 },
+        { PERUMAHAN: 'PESONA SEMPOJA', 'LB/LT': '30/80', LOKASI: 'KEDIRI', DEVELOPER: 'CITRA JAYA GRAHA', HARGA: 185000000, BOOKING: 500000, 'BIAYA ADM': 9000000, 'ANGSURAN 20 TH': 1200000 },
+        { PERUMAHAN: 'CITRA GARDEN', 'LB/LT': '27/72', LOKASI: 'PERAMPVAN', DEVELOPER: 'CITRA JAYA GRAHA', HARGA: 185000000, BOOKING: 1000000, 'BIAYA ADM': 5000000, 'ANGSURAN 20 TH': 1200000 },
+        { PERUMAHAN: 'BY PAS RASE', 'LB/LT': '27/72', LOKASI: 'DASAN BARU', DEVELOPER: 'CITRA JAYA GRAHA', HARGA: 185000000, BOOKING: 1000000, 'BIAYA ADM': 18000000, 'ANGSURAN 20 TH': 1200000 },
+        { PERUMAHAN: 'INDRALOKA (Subsidi)', 'LB/LT': '27/72', LOKASI: 'PERAMPVAN', DEVELOPER: 'BUMI SRI KARMA', HARGA: 185000000, BOOKING: 1000000, 'BIAYA ADM': 18000000, 'ANGSURAN 20 TH': 1200000 },
+        { PERUMAHAN: 'TERALAND', 'LB/LT': '30/80', LOKASI: 'KURANJI', DEVELOPER: 'VARINDO', HARGA: 185000000, BOOKING: 500000, 'BIAYA ADM': 9000000, 'ANGSURAN 20 TH': 1200000 },
+    ],
+};
+
+// Map status for display
+const STATUS_MAP = {
+    'Baru': { label: 'Baru', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
+    'Cek Lokasi': { label: 'Cek Lokasi', color: 'bg-blue-100 text-blue-800', icon: Search },
+    'Serius': { label: 'Serius', color: 'bg-purple-100 text-purple-800', icon: User },
+    'Follow-Up': { label: 'Follow-Up', color: 'bg-orange-100 text-orange-800', icon: Clock },
+    'Closing': { label: 'Closing', color: 'bg-green-100 text-green-800', icon: CheckCircle },
+    'Tidak Tertarik': { label: 'Tidak Tertarik', color: 'bg-gray-100 text-gray-500', icon: XCircle },
+};
+const STATUS_OPTIONS = Object.keys(STATUS_MAP);
+
+// Helper untuk mendapatkan path koleksi (sesuai aturan keamanan Firestore)
+const getCollectionPath = (db, type, userId) => {
+    const base = `artifacts/${appId}`;
+    if (type === 'leads') {
+        return collection(db, `${base}/users/${userId}/leads`);
+    }
+    if (type === 'properties') {
+        // Public data path
+        return collection(db, `${base}/public/data/properties`);
+    }
+    return null;
+};
+
+// Komponen Card Status Konsumen
+const StatusCard = ({ statusKey, count }) => {
+    const { label, color, icon: Icon } = STATUS_MAP[statusKey];
+    return (
+        <div className={`p-4 rounded-lg shadow-md ${color.replace('text-', 'border-').replace('100', '300').replace('800', '500').replace('bg-', 'border')} border-l-4 bg-white`}>
+            <div className="flex items-center justify-between">
+                <div>
+                    <div className="text-sm font-medium text-gray-500">{label}</div>
+                    <div className="text-2xl font-bold text-gray-900">{count}</div>
+                </div>
+                <Icon className={`w-6 h-6 ${color.replace('bg-', 'text-').replace('100', '600')}`} />
+            </div>
+        </div>
+    );
+};
+
+// Komponen Tampilan Properti yang di-Refactor
+const PropertyTable = ({ properties }) => {
+    // Gunakan string kunci state: 'komersil' atau 'subsidi'
+    const [activeSubTab, setActiveSubTab] = useState('komersil'); 
+    // Default sort PERUMAHAN, karena data dari Firestore tidak memiliki 'NO'
+    const [sortConfig, setSortConfig] = useState({ key: 'PERUMAHAN', direction: 'ascending' });
+
+    const currentData = properties[activeSubTab] || [];
+    const isKomersil = activeSubTab === 'komersil';
+
+    const cols = useMemo(() => {
+        if (isKomersil) {
+            return ['PERUMAHAN', 'LB/LT', 'LOKASI', 'DEVELOPER', 'HARGA', 'DP MINML/BOOKING', 'BIAYA AKAD', 'AKAD OLEH KONS', 'ANGSURAN 20 TH'];
+        }
+        return ['PERUMAHAN', 'LB/LT', 'LOKASI', 'DEVELOPER', 'HARGA', 'BOOKING', 'BIAYA ADM', 'ANGSURAN 20 TH'];
+    }, [isKomersil]);
+
+    const requestSort = (key) => {
+        let direction = 'ascending';
+        if (sortConfig.key === key && sortConfig.direction === 'ascending') {
+            direction = 'descending';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const sortedData = useMemo(() => {
+        let sortableItems = [...currentData];
+
+        if (sortConfig.key !== null) {
+            sortableItems.sort((a, b) => {
+                const aValue = a[sortConfig.key];
+                const bValue = b[sortConfig.key];
+
+                // Penanganan untuk nilai numerik (harga)
+                if (
+                    (sortConfig.key.includes('HARGA') || sortConfig.key.includes('BOOKING') || sortConfig.key.includes('BIAYA') || sortConfig.key.includes('ANGSURAN') || sortConfig.key.includes('DP MINML'))
+                ) {
+                     const numA = parseRupiah(aValue);
+                     const numB = parseRupiah(bValue);
+
+                    if (numA < numB) {
+                        return sortConfig.direction === 'ascending' ? -1 : 1;
+                    }
+                    if (numA > numB) {
+                        return sortConfig.direction === 'ascending' ? 1 : -1;
+                    }
+                } else if (String(aValue).toLowerCase() < String(bValue).toLowerCase()) {
+                    // Penanganan untuk string
+                    return sortConfig.direction === 'ascending' ? -1 : 1;
+                } else if (String(aValue).toLowerCase() > String(bValue).toLowerCase()) {
+                    return sortConfig.direction === 'ascending' ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+        return sortableItems;
+    }, [currentData, sortConfig]);
+
+    const getSortIndicator = (key) => {
+        if (sortConfig.key !== key) return null;
+        return sortConfig.direction === 'ascending' ? '▲' : '▼';
+    };
+
+    const renderCell = (col, value) => {
+        if (col.includes('HARGA') || col.includes('BOOKING') || col.includes('BIAYA') || col.includes('ANGSURAN') || col.includes('DP MINML')) {
+            // Pastikan nilai adalah angka sebelum diformat
+            const numericValue = typeof value === 'number' ? value : parseRupiah(value);
+            return <span className="font-mono text-xs">{formatRupiah(numericValue)}</span>;
+        }
+        return value || '-';
+    };
+
+    return (
+        <div className="bg-white shadow-lg rounded-xl p-4 overflow-x-auto">
+            <div className="flex justify-start space-x-2 mb-4 border-b pb-2">
+                <button
+                    onClick={() => setActiveSubTab('komersil')}
+                    className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors flex items-center ${activeSubTab === 'komersil' ? 'text-navy-700 border-b-2 border-navy-700' : 'text-gray-500 hover:text-navy-500'}`}
+                >
+                    🏘️ Komersil ({properties.komersil.length})
+                </button>
+                <button
+                    onClick={() => setActiveSubTab('subsidi')}
+                    className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors flex items-center ${activeSubTab === 'subsidi' ? 'text-navy-700 border-b-2 border-navy-700' : 'text-gray-500 hover:text-navy-500'}`}
+                >
+                    🏡 Subsidi ({properties.subsidi.length})
+                </button>
+            </div>
+
+            <div className="w-full text-sm">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            {cols.map(col => (
+                                <th
+                                    key={col}
+                                    onClick={() => requestSort(col)}
+                                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer whitespace-nowrap"
+                                >
+                                    <div className="flex items-center">
+                                        {col} {getSortIndicator(col)}
+                                    </div>
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {sortedData.map((prop, index) => (
+                            <tr key={prop.id || index} className="hover:bg-blue-50 transition-colors">
+                                {cols.map(col => (
+                                    <td key={col} className="px-4 py-3 whitespace-nowrap text-xs text-gray-800">
+                                        {renderCell(col, prop[col])}
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            {sortedData.length === 0 && (
+                <div className="text-center py-8 text-gray-500">Tidak ada data properti yang ditemukan.</div>
+            )}
+        </div>
+    );
+};
+
+
+// Komponen Utama Aplikasi
+export default function App() {
+    const [db, setDb] = useState(null);
+    const [auth, setAuth] = useState(null);
+    const [userId, setUserId] = useState(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
+    const [activeTab, setActiveTab] = useState('Konsumen'); // Konsumen | Property
+    const [leads, setLeads] = useState([]);
+    // State properties menggunakan kunci 'komersil' dan 'subsidi'
+    const [properties, setProperties] = useState({ komersil: [], subsidi: [] });
+    const [loading, setLoading] = useState(true);
+
+    // State untuk Dashboard Konsumen
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filterStatus, setFilterStatus] = useState('Semua');
+    const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
+    const [currentLead, setCurrentLead] = useState(null);
+
+    // 1. Inisialisasi Firebase dan Autentikasi
+    useEffect(() => {
+        if (Object.keys(firebaseConfig).length === 0) {
+            console.error("Firebase config is missing. Cannot initialize Firestore.");
+            setIsAuthReady(true);
+            setLoading(false);
+            return;
+        }
+
+        try {
+            const app = initializeApp(firebaseConfig);
+            const firestore = getFirestore(app);
+            const authService = getAuth(app);
+            setDb(firestore);
+            setAuth(authService);
+
+            // Fungsi untuk menangani login awal secara eksplisit dan menjamin userId/isAuthReady
+            const handleInitialAuth = async () => {
+                try {
+                    let userCredential;
+                    if (initialAuthToken) {
+                        userCredential = await signInWithCustomToken(authService, initialAuthToken);
+                    } else {
+                        userCredential = await signInAnonymously(authService);
+                    }
+                    setUserId(userCredential.user.uid);
+                } catch (e) {
+                    if (initialAuthToken) {
+                        console.warn("Custom token sign-in failed. Falling back to anonymous:", e.message);
+                        try {
+                            const anonymousUser = await signInAnonymously(authService);
+                            setUserId(anonymousUser.user.uid);
+                        } catch (anonError) {
+                            console.error("Anonymous sign-in failed:", anonError);
+                        }
+                    } else {
+                        console.error("Initial sign-in failed:", e);
+                    }
+                } finally {
+                    setIsAuthReady(true);
+                }
+            };
+            
+            handleInitialAuth();
+
+        } catch (e) {
+            console.error("Error initializing Firebase:", e);
+            setIsAuthReady(true);
+            setLoading(false);
+        }
+    }, []);
+    
+    // Helper untuk Seeding Data Properti
+    const seedPropertyData = useCallback(async (colRef) => {
+        console.log("Mulai seeding data properti...");
+        const allProps = [
+            ...initialPropertyData.komersil.map(p => ({ ...p, category: 'komersil' })),
+            ...initialPropertyData.subsidi.map(p => ({ ...p, category: 'subsidi' }))
+        ];
+
+        try {
+            // Memasukkan data properti satu per satu
+            for (const prop of allProps) {
+                // Menggunakan ID unik jika ada, tapi addDoc lebih aman untuk public data
+                await addDoc(colRef, prop); 
+            }
+            // Menandai bahwa seeding sudah selesai
+            await setDoc(doc(colRef, 'metadata'), { seeded: true, timestamp: new Date().toISOString() });
+            console.log(`Seeding properti selesai. Total ${allProps.length} properti ditambahkan.`);
+        } catch (error) {
+            console.error("Error during property data seeding:", error);
+        }
+    }, []);
+
+
+    // 2. Fetch/Seed Data Properti (Public)
+    useEffect(() => {
+        // Penting: Hanya berjalan setelah autentikasi selesai (isAuthReady = true)
+        if (!db || !isAuthReady) {
+            return;
+        }
+
+        const propColRef = getCollectionPath(db, 'properties', userId);
+        let unsubscribe = () => {};
+
+        const checkAndListen = async () => {
+            console.log("Auth is ready. Checking property data...");
+            try {
+                // 1. Cek apakah seeding sudah dilakukan
+                const metadataDocRef = doc(propColRef, 'metadata');
+                const docSnap = await getDoc(metadataDocRef);
+
+                if (!docSnap.exists() || docSnap.data().seeded !== true) {
+                    console.log("Seeding is required.");
+                    await seedPropertyData(propColRef);
+                } else {
+                    console.log("Seeding already done.");
+                }
+            } catch (e) {
+                console.error("Error during initial property check/seed:", e);
+            }
+
+            // 2. Set up the real-time listener
+            // Menggunakan onSnapshot pada collection secara keseluruhan untuk mendapatkan semua properti
+            const q = query(propColRef);
+            unsubscribe = onSnapshot(q, (snapshot) => {
+                const allProps = snapshot.docs
+                    .filter(doc => doc.id !== 'metadata')
+                    .map(doc => ({ id: doc.id, ...doc.data() }));
+
+                // Pisahkan data berdasarkan category untuk state
+                const komersil = allProps.filter(p => p.category === 'komersil');
+                const subsidi = allProps.filter(p => p.category === 'subsidi');
+
+                setProperties({ komersil, subsidi });
+                setLoading(false);
+                
+                if (allProps.length === 0) {
+                     console.log("Property snapshot is empty. Ensure data seeded correctly.");
+                }
+
+            }, (error) => {
+                console.error("Error fetching properties via snapshot:", error);
+                setLoading(false);
+            });
+        };
+
+        checkAndListen();
+
+        return () => unsubscribe();
+
+    }, [db, isAuthReady, userId, seedPropertyData]);
+
+    // 3. Fetch Data Konsumen (Private/User-specific)
+    useEffect(() => {
+        if (!db || !userId) return;
+
+        const leadsColRef = getCollectionPath(db, 'leads', userId);
+
+        // Query diurutkan berdasarkan tanggal dibuat
+        const q = query(leadsColRef, orderBy('createdAt', 'desc'));
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedLeads = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                // Pastikan date objects dikonversi
+                createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : new Date(),
+                visitDate: doc.data().visitDate?.toDate ? doc.data().visitDate.toDate() : doc.data().visitDate,
+            }));
+            setLeads(fetchedLeads);
+        }, (error) => {
+            console.error("Error fetching leads:", error);
+        });
+
+        return () => unsubscribe();
+    }, [db, userId]); 
+
+    // Logika Filter & Pencarian Konsumen
+    const filteredLeads = useMemo(() => {
+        let currentLeads = leads;
+
+        if (filterStatus !== 'Semua') {
+            currentLeads = currentLeads.filter(lead => lead.status === filterStatus);
+        }
+
+        if (searchTerm) {
+            const lowerCaseSearch = searchTerm.toLowerCase();
+            currentLeads = currentLeads.filter(lead =>
+                lead.name.toLowerCase().includes(lowerCaseSearch) ||
+                lead.phone.includes(lowerCaseSearch) ||
+                lead.propertyInterest.toLowerCase().includes(lowerCaseSearch) ||
+                (lead.notes || '').toLowerCase().includes(lowerCaseSearch)
+            );
+        }
+
+        return currentLeads;
+    }, [leads, filterStatus, searchTerm]);
+
+    // Menghitung status untuk dashboard card
+    const statusCounts = useMemo(() => {
+        return STATUS_OPTIONS.reduce((acc, status) => {
+            acc[status] = leads.filter(lead => lead.status === status).length;
+            return acc;
+        }, {});
+    }, [leads]);
+
+    // Handler CRUD Konsumen
+    const handleSaveLead = async (leadData) => {
+        if (!db || !userId) return;
+        const leadsColRef = getCollectionPath(db, 'leads', userId);
+        setLoading(true);
+
+        const payload = {
+            ...leadData,
+            visitDate: leadData.visitDate ? new Date(leadData.visitDate) : null,
+            // Jika ini prospek baru, tambahkan createdAt, jika edit, pertahankan yang lama
+            createdAt: leadData.id && leadData.id !== 'new' && leadData.createdAt ? leadData.createdAt : new Date(),
+            updatedAt: new Date(),
+        };
+
+        try {
+            if (leadData.id && leadData.id !== 'new') {
+                // Edit existing lead
+                const leadDocRef = doc(leadsColRef, leadData.id);
+                await setDoc(leadDocRef, payload, { merge: true });
+            } else {
+                // Add new lead
+                await addDoc(leadsColRef, payload);
+            }
+            setIsLeadModalOpen(false);
+            setCurrentLead(null);
+        } catch (error) {
+            console.error("Error saving lead:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDeleteLead = async (id) => {
+        if (!db || !userId || !window.confirm('Apakah Anda yakin ingin menghapus prospek ini? (Status akan diubah menjadi "Tidak Tertarik")')) return;
+        setLoading(true);
+        try {
+            const leadsColRef = getCollectionPath(db, 'leads', userId);
+            // Soft Delete: mengubah status menjadi "Tidak Tertarik"
+            await setDoc(doc(leadsColRef, id), { status: 'Tidak Tertarik', updatedAt: new Date() }, { merge: true });
+        } catch (error) {
+            console.error("Error deleting (archiving) lead:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Handler untuk membuka modal
+    const openLeadModal = (lead = null) => {
+        setCurrentLead(lead || {
+            id: 'new', name: '', phone: '', propertyInterest: '', status: 'Baru', visitDate: '', notes: '', followUpDate: '', createdAt: new Date()
+        });
+        setIsLeadModalOpen(true);
+    };
+
+    // Komponen Form Modal Tambah/Edit Konsumen
+    const LeadModal = ({ lead, onClose, onSave, allProperties }) => {
+        const [formData, setFormData] = useState(lead);
+        const [isSaving, setIsSaving] = useState(false);
+
+        // Menggabungkan dan mengurutkan semua nama properti yang tersedia untuk dropdown
+        const availableProperties = useMemo(() => {
+            return [
+                ...allProperties.komersil.map(p => p.PERUMAHAN),
+                ...allProperties.subsidi.map(p => p.PERUMAHAN)
+            ].sort();
+        }, [allProperties]);
+
+
+        const handleChange = (e) => {
+            const { name, value } = e.target;
+            setFormData(prev => ({ ...prev, [name]: value }));
+        };
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            setIsSaving(true);
+            // Non-compliant to standard JavaScript API but used here for canvas environment
+            if (!formData.name || !formData.phone) {
+                window.alert("Nama dan Nomor HP wajib diisi.");
+                setIsSaving(false);
+                return;
+            }
+            await onSave(formData);
+            setIsSaving(false);
+        };
+
+        return (
+            <div className="fixed inset-0 z-50 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 transform transition-all scale-100 opacity-100">
+                    <h2 className="text-xl font-bold text-navy-800 mb-4">{lead.id === 'new' ? 'Tambah Prospek Baru' : `Edit Prospek: ${lead.name}`}</h2>
+                    <form onSubmit={handleSubmit}>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">Nama Konsumen</label>
+                                <input
+                                    type="text"
+                                    name="name"
+                                    value={formData.name}
+                                    onChange={handleChange}
+                                    required
+                                    className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">Nomor HP/WhatsApp</label>
+                                <input
+                                    type="tel"
+                                    name="phone"
+                                    value={formData.phone}
+                                    onChange={handleChange}
+                                    required
+                                    className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+                                />
+                            </div>
+                            <div className='col-span-1'>
+                                <label className="block text-sm font-medium text-gray-700">Property Diminati</label>
+                                <select
+                                    name="propertyInterest"
+                                    value={formData.propertyInterest}
+                                    onChange={handleChange}
+                                    className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border bg-white"
+                                >
+                                    <option value="">-- Pilih Property --</option>
+                                    {availableProperties.map((prop, index) => (
+                                        <option key={index} value={prop}>{prop}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className='col-span-1'>
+                                <label className="block text-sm font-medium text-gray-700">Status</label>
+                                <select
+                                    name="status"
+                                    value={formData.status}
+                                    onChange={handleChange}
+                                    required
+                                    className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border bg-white"
+                                >
+                                    {STATUS_OPTIONS.map(status => (
+                                        <option key={status} value={status}>{STATUS_MAP[status].label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className='col-span-2'>
+                                <label className="block text-sm font-medium text-gray-700">Tanggal Kunjungan/Survei (Opsional)</label>
+                                <input
+                                    type="date"
+                                    name="visitDate"
+                                    // Handle Date object conversion for input type="date"
+                                    value={formData.visitDate ? (formData.visitDate instanceof Date ? formData.visitDate.toISOString().split('T')[0] : formData.visitDate) : ''}
+                                    onChange={handleChange}
+                                    className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+                                />
+                            </div>
+                            <div className='col-span-2'>
+                                <label className="block text-sm font-medium text-gray-700">Catatan Tambahan</label>
+                                <textarea
+                                    name="notes"
+                                    rows="3"
+                                    value={formData.notes}
+                                    onChange={handleChange}
+                                    className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
+                                ></textarea>
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex justify-end space-x-3">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                                disabled={isSaving}
+                            >
+                                Batal
+                            </button>
+                            <button
+                                type="submit"
+                                className="px-4 py-2 text-sm font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 transition-colors disabled:opacity-50 flex items-center"
+                                disabled={isSaving}
+                            >
+                                {isSaving ? 'Menyimpan...' : 'Simpan Prospek'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        );
+    };
+
+    // Komponen Tabel Konsumen
+    const LeadsTable = ({ leads, onEdit, onDelete, auth }) => {
+        // Logika Follow-Up Reminder: Prospek dengan status "Cek Lokasi" yang kunjungannya lebih dari 3 hari lalu
+        const isFollowUpDue = (lead) => {
+            if (lead.status === 'Cek Lokasi' && lead.visitDate && lead.visitDate instanceof Date) {
+                const visitDate = lead.visitDate;
+                const threeDaysAgo = new Date();
+                threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+                return visitDate < threeDaysAgo;
+            }
+            return false;
+        };
+
+        return (
+            <div className="bg-white shadow-lg rounded-xl overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            {['Nama', 'Property Diminati', 'Status', 'Tgl Survei', 'Catatan', 'Aksi'].map(header => (
+                                <th key={header} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                                    {header}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {leads.map((lead) => {
+                            const statusInfo = STATUS_MAP[lead.status] || STATUS_MAP['Baru'];
+                            const Icon = statusInfo.icon;
+                            // Memastikan nomor telepon hanya angka untuk link WA
+                            const rawPhone = lead.phone.replace(/\D/g, '');
+                            const waLink = `https://wa.me/${rawPhone}?text=Halo%20${lead.name},%20saya%20${auth?.currentUser?.displayName || 'Kaya Property Lombok'}.%20Bagaimana%20properti%20${lead.propertyInterest}%3F`;
+
+                            return (
+                                <tr key={lead.id} className="hover:bg-blue-50 transition-colors">
+                                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                                        <div className="flex items-center space-x-2">
+                                            {lead.name}
+                                            {isFollowUpDue(lead) && (
+                                                <span className="relative flex h-2 w-2" title="Waktunya Follow-Up!">
+                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                                                </span>
+                                            )}
+                                        </div>
+                                        <a href={waLink} target="_blank" rel="noopener noreferrer" className="text-xs text-green-600 hover:text-green-800 flex items-center mt-1">
+                                            {lead.phone} <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" alt="WA" className="w-3 h-3 ml-1" />
+                                        </a>
+                                    </td>
+                                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{lead.propertyInterest || '-'}</td>
+                                    <td className="px-4 py-3 whitespace-nowrap">
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusInfo.color}`}>
+                                            <Icon className="w-3 h-3 mr-1" /> {statusInfo.label}
+                                        </span>
+                                    </td>
+                                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                                        {lead.visitDate && lead.visitDate instanceof Date ? lead.visitDate.toLocaleDateString('id-ID') : '-'}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-gray-700 max-w-xs truncate">{lead.notes || '-'}</td>
+                                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium flex space-x-2">
+                                        <button onClick={() => onEdit(lead)} className="text-blue-600 hover:text-blue-900" title="Edit">
+                                            <Edit className="w-4 h-4" />
+                                        </button>
+                                        <button onClick={() => onDelete(lead.id)} className="text-red-600 hover:text-red-900" title="Archived/Hapus">
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+                {leads.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                        {filterStatus !== 'Semua' ? `Tidak ada prospek dengan status '${filterStatus}'` : 'Belum ada data prospek.'}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+
+    // Konten Dashboard Konsumen
+    const KonsumenDashboard = () => (
+        <div className="space-y-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                {Object.keys(STATUS_MAP).filter(s => s !== 'Tidak Tertarik').map(status => (
+                    <StatusCard key={status} statusKey={status} count={statusCounts[status] || 0} />
+                ))}
+            </div>
+
+            <div className="bg-white p-4 rounded-xl shadow-lg">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center space-y-3 md:space-y-0 mb-4">
+                    <h2 className="text-xl font-semibold text-navy-800">Daftar Prospek ({filteredLeads.length})</h2>
+                    <div className="flex space-x-2 w-full md:w-auto">
+                        <button
+                            onClick={() => openLeadModal()}
+                            className="flex items-center px-4 py-2 bg-navy-600 text-white font-semibold text-sm rounded-lg hover:bg-navy-700 transition-colors shadow-md"
+                        >
+                            <Plus className="w-4 h-4 mr-1" /> Tambah Prospek
+                        </button>
+                        <button
+                            onClick={() => window.alert("Simulasi: Data diekspor ke format Excel/CSV.")}
+                            className="flex items-center px-4 py-2 bg-gray-200 text-gray-700 font-semibold text-sm rounded-lg hover:bg-gray-300 transition-colors shadow-md"
+                        >
+                            Export
+                        </button>
+                    </div>
+                </div>
+
+                {/* Filter & Search Bar */}
+                <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 mb-6">
+                    <div className="relative w-full sm:max-w-xs">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                            type="text"
+                            placeholder="Cari Nama, HP, Property, atau Catatan..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm"
+                        />
+                    </div>
+                    <div className="relative">
+                        <ListFilter className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <select
+                            value={filterStatus}
+                            onChange={(e) => setFilterStatus(e.target.value)}
+                            className="w-full sm:w-auto pl-10 pr-8 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm appearance-none bg-white"
+                        >
+                            <option value="Semua">Semua Status</option>
+                            {STATUS_OPTIONS.map(status => (
+                                <option key={status} value={status}>{STATUS_MAP[status].label}</option>
+                            ))}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                </div>
+
+                <LeadsTable leads={filteredLeads} onEdit={openLeadModal} onDelete={handleDeleteLead} auth={auth} />
+            </div>
+        </div>
+    );
+
+    if (loading || !isAuthReady) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-50">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-navy-500 mx-auto"></div>
+                    <p className="mt-4 text-navy-700 font-medium">Memuat data Kaya Property Tracker...</p>
+                    <p className="text-xs text-gray-500 mt-1">User ID: {userId || 'Authenticating...'}</p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-gray-50 font-sans">
+            <header className="bg-navy-700 shadow-md sticky top-0 z-10">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center">
+                    <div className="text-2xl font-bold text-white tracking-wider">
+                        KAYA PROPERTY <span className="text-blue-300">TRACKER</span>
+                    </div>
+                    <div className="flex items-center space-x-4 mt-3 sm:mt-0">
+                         <div className="text-sm text-gray-300">
+                            User ID: <span className="font-mono text-xs p-1 bg-navy-600 rounded">{userId}</span>
+                        </div>
+                    </div>
+                </div>
+                <nav className="bg-navy-800">
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div className="flex space-x-4">
+                            <button
+                                onClick={() => setActiveTab('Konsumen')}
+                                className={`px-3 py-2 text-sm font-medium rounded-t-lg transition-colors flex items-center ${activeTab === 'Konsumen' ? 'bg-white text-navy-800' : 'text-gray-300 hover:bg-navy-700 hover:text-white'}`}
+                            >
+                                <User className="w-4 h-4 mr-1" /> CRM Konsumen
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('Property')}
+                                className={`px-3 py-2 text-sm font-medium rounded-t-lg transition-colors flex items-center ${activeTab === 'Property' ? 'bg-white text-navy-800' : 'text-gray-300 hover:bg-navy-700 hover:text-white'}`}
+                            >
+                                <House className="w-4 h-4 mr-1" /> Database Property
+                            </button>
+                        </div>
+                    </div>
+                </nav>
+            </header>
+
+            <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+                {activeTab === 'Konsumen' && <KonsumenDashboard />}
+                {activeTab === 'Property' && (
+                    <div className="space-y-6">
+                        <h1 className="text-3xl font-bold text-navy-800">Database Properti Kaya Lombok</h1>
+                        {/* Mengirimkan state properties langsung ke PropertyTable */}
+                        <PropertyTable properties={properties} />
+                    </div>
+                )}
+            </main>
+
+            {isLeadModalOpen && (
+                <LeadModal
+                    lead={currentLead}
+                    onClose={() => setIsLeadModalOpen(false)}
+                    onSave={handleSaveLead}
+                    // Mengirimkan state properties langsung ke Modal
+                    allProperties={properties} 
+                />
+            )}
+        </div>
+    );
+}
